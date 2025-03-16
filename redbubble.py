@@ -3,6 +3,7 @@ import time
 import cloudscraper
 import concurrent.futures
 from bs4 import BeautifulSoup
+import random
 
 # Sử dụng cloudscraper để vượt Cloudflare
 session = cloudscraper.create_scraper()
@@ -13,6 +14,11 @@ path = input("Nhập path (ví dụ: /t-shirts): ").strip()
 start_page = int(input("Nhập trang bắt đầu: "))
 end_page = int(input("Nhập trang kết thúc: "))
 
+proxy = {
+    "http": "http://root:kPEV5b4r@23.129.232.126:56259",
+    "https": "http://root:kPEV5b4r@23.129.232.126:56259"
+}
+
 headers = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
 }
@@ -22,17 +28,16 @@ save_folder = "redbubble"
 os.makedirs(save_folder, exist_ok=True)
 
 import re
-def clean_filename(filename, max_length=100):
+def clean_filename(filename, max_length=255):
     """Loại bỏ ký tự đặc biệt, giới hạn độ dài tên file."""
     filename = re.sub(r'[^a-zA-Z0-9 _-]', '', filename)  # Chỉ giữ chữ, số, `_` và `-`
-    return filename.strip().replace(' ', '_').replace('_', ' ')[:max_length]  # Giới hạn độ dài
-
+    return filename.strip().replace(' ', '_').replace('_', ' ')[:max_length]
 
 def get_product_links(page_number):
     """Lấy danh sách href từ một trang cụ thể."""
-    url = f"{base_url}{path}?page={page_number}"
-    time.sleep(2)  # Tránh bị chặn
-    response = session.get(url, headers=headers)
+    url = f"{base_url}{path}{'&' if '?' in path else '?'}page={page}"
+    time.sleep(4)  # Tránh bị chặn
+    response = session.get(url, headers=headers, proxies=proxy, timeout=10)
     if response.status_code != 200:
         print(f"Không thể truy cập trang {url}")
         return []
@@ -44,8 +49,8 @@ def get_product_links(page_number):
 def download_image(idx, href):
     """Tải ảnh từ trang sản phẩm."""
     try:
-        time.sleep(2)  # Tránh bị chặn do gửi request quá nhanh
-        product_page = session.get(base_url + href, headers=headers)
+        time.sleep(random.uniform(2, 5))  # Tránh bị chặn do gửi request quá nhanh
+        product_page = session.get(base_url + href, headers=headers, proxies=proxy, timeout=10)
         if product_page.status_code != 200:
             print(f"❌ Không thể truy cập {href}")
             return
@@ -69,7 +74,7 @@ def download_image(idx, href):
         img_headers["Referer"] = base_url + href  
 
         # Tải ảnh với Cookie từ session
-        response = session.get(img_url, headers=img_headers, stream=True)
+        response = session.get(img_url, headers=img_headers, proxies=proxy, timeout=10, stream=True)
         if response.status_code == 200:
             with open(img_path, "wb") as file:
                 for chunk in response.iter_content(1024):

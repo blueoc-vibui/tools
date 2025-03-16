@@ -5,6 +5,7 @@ import concurrent.futures
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
+import random
 
 # Nhập thông tin từ người dùng
 base_url = "https://www.teepublic.com"
@@ -33,7 +34,8 @@ os.makedirs(save_folder, exist_ok=True)
 
 def get_product_links(page_number):
     """Lấy danh sách href từ một trang cụ thể."""
-    url = f"{base_url}{path}?page={page_number}"
+    url = f"{base_url}{path}{'&' if '?' in path else '?'}page={page}"
+    print(url)
     time.sleep(2)  # Chờ để tránh bị chặn
     response = session.get(url, headers=headers, proxies=proxy, timeout=10)
     if response.status_code != 200:
