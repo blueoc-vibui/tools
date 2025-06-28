@@ -21,7 +21,7 @@ from threading import Lock
 
 
 class OnloanDownloader:
-    def __init__(self, download_folder: str = "onloan_images", headless: bool = True, max_workers: int = 8):
+    def __init__(self, download_folder: str = "onloan_images", headless: bool = True, max_workers: int = 8, filter_keywords: bool = True):
         """
         Initialize the Onloan downloader
         
@@ -29,12 +29,15 @@ class OnloanDownloader:
             download_folder: Folder to save downloaded images
             headless: Run browser in headless mode
             max_workers: Maximum number of threads for downloading images
+            filter_keywords: Enable keyword filtering from keyTm.txt
         """
         self.download_folder = download_folder
         self.headless = headless
         self.max_workers = max_workers
+        self.filter_keywords = filter_keywords
         self.driver = None
         self.print_lock = Lock()
+        self.blocked_keywords = self.load_blocked_keywords() if filter_keywords else []
         self.setup_driver()
         self.setup_download_folder()
         
@@ -69,6 +72,55 @@ class OnloanDownloader:
             os.makedirs(self.download_folder)
             print(f"📁 Created download folder: {self.download_folder}")
             
+    def load_blocked_keywords(self) -> List[str]:
+        """
+        Load blocked keywords from keyTm.txt file
+        
+        Returns:
+            List of keywords to filter out (case insensitive)
+        """
+        keywords = []
+        keyfile_path = os.path.join(os.path.dirname(__file__), "keyTm.txt")
+        
+        try:
+            with open(keyfile_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if line and not line.startswith('#'):
+                        keywords.append(line.lower())
+            
+            print(f"🚫 Loaded {len(keywords)} blocked keywords from keyTm.txt")
+            return keywords
+            
+        except FileNotFoundError:
+            print("⚠️  keyTm.txt not found, keyword filtering disabled")
+            return []
+        except Exception as e:
+            print(f"⚠️  Error loading keyTm.txt: {e}")
+            return []
+    
+    def is_keyword_blocked(self, text: str) -> bool:
+        """
+        Check if text contains any blocked keywords
+        
+        Args:
+            text: Text to check
+            
+        Returns:
+            True if text contains blocked keywords, False otherwise
+        """
+        if not self.filter_keywords or not self.blocked_keywords:
+            return False
+            
+        text_lower = text.lower()
+        
+        for keyword in self.blocked_keywords:
+            if keyword in text_lower:
+                return True
+                
+        return False
+
     def sanitize_filename(self, filename: str) -> str:
         """Sanitize filename for safe saving"""
         # Remove invalid characters
@@ -106,6 +158,11 @@ class OnloanDownloader:
     def download_image(self, img_url: str, img_name: str, page_num: int) -> bool:
         """Download a single image with enhanced quality"""
         try:
+            # Check if image name contains blocked keywords
+            if self.is_keyword_blocked(img_name):
+                self.safe_print(f"  🚫 Blocked: {img_name} (contains filtered keyword)")
+                return False
+                
             # Enhance image URL for better quality
             enhanced_url = self.enhance_image_url(img_url)
             
@@ -179,6 +236,11 @@ class OnloanDownloader:
                     img_name = name_element.text.strip()
                     
                     if img_url and img_name:
+                        # Filter out images with blocked keywords
+                        if self.is_keyword_blocked(img_name):
+                            self.safe_print(f"  🚫 Skipping {img_name} (blocked keyword)")
+                            continue
+                        
                         # Handle relative URLs
                         if img_url.startswith('//'):
                             img_url = 'https:' + img_url
@@ -274,6 +336,8 @@ def main():
                        help="Output folder (default: onloan_images)")
     parser.add_argument("--threads", "-t", type=int, default=8,
                        help="Download threads (default: 8)")
+    parser.add_argument("--no-filter", action="store_true",
+                       help="Disable keyword filtering")
     parser.add_argument("--visible", action="store_true",
                        help="Show browser (for debugging)")
     
@@ -289,7 +353,8 @@ def main():
         with OnloanDownloader(
             download_folder=args.output,
             headless=not args.visible,
-            max_workers=args.threads
+            max_workers=args.threads,
+            filter_keywords=not args.no_filter
         ) as downloader:
             downloader.download_pages("", args.start, args.end)
             

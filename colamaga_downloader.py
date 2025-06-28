@@ -22,20 +22,23 @@ from threading import Lock
 
 
 class ColamagaDownloader:
-    def __init__(self, download_folder: str = "downloads", headless: bool = True, max_workers: int = 5):
+    def __init__(self, download_folder: str = "downloads", headless: bool = True, max_workers: int = 5, filter_keywords: bool = True):
         """
         Initialize the downloader
-
+        
         Args:
             download_folder: Folder to save downloaded images
             headless: Run browser in headless mode
             max_workers: Maximum number of threads for downloading images
+            filter_keywords: Enable keyword filtering from keyTm.txt
         """
         self.download_folder = download_folder
         self.headless = headless
         self.max_workers = max_workers
+        self.filter_keywords = filter_keywords
         self.driver = None
         self.print_lock = Lock()  # For thread-safe printing
+        self.blocked_keywords = self.load_blocked_keywords() if filter_keywords else []
         self.setup_driver()
         self.setup_download_folder()
 
@@ -89,23 +92,29 @@ class ColamagaDownloader:
         """Thread-safe printing"""
         with self.print_lock:
             print(message)
-
+            
     def download_image(self, img_url: str, img_name: str, page_num: int) -> bool:
         """
         Download a single image
-
+        
         Args:
             img_url: URL of the image
             img_name: Name for the image file
             page_num: Page number for organization
-
+            
         Returns:
             True if successful, False otherwise
         """
         try:
+            # Check if image name contains blocked keywords
+            if self.is_keyword_blocked(img_name):
+                self.safe_print(f"  🚫 Blocked: {img_name} (contains filtered keyword)")
+                return False
+                
             # Get file extension from URL
             parsed_url = urlparse(img_url)
             ext = os.path.splitext(parsed_url.path)[1] or '.jpg'
+            
             # Sanitize filename
             safe_name = self.sanitize_filename(img_name)
             filename = f"{safe_name}{ext}"
@@ -179,6 +188,11 @@ class ColamagaDownloader:
                             img_url = 'https:' + img_url
                         elif img_url.startswith('/'):
                             img_url = urljoin(page_url, img_url)
+
+                        # Check if image name contains blocked keywords
+                        if self.is_keyword_blocked(img_name):
+                            self.safe_print(f"  🚫 Skipping {img_name} (blocked keyword)")
+                            continue
 
                         images_data.append((img_url, img_name))
                         print(f"  📸 Found: {img_name}")
@@ -257,6 +271,55 @@ class ColamagaDownloader:
         print(f"📊 Total: {total_downloaded}/{total_images} images downloaded")
         print(f"📁 Saved to: {os.path.abspath(self.download_folder)}")
 
+    def load_blocked_keywords(self) -> List[str]:
+        """
+        Load blocked keywords from keyTm.txt file
+        
+        Returns:
+            List of keywords to filter out (case insensitive)
+        """
+        keywords = []
+        keyfile_path = os.path.join(os.path.dirname(__file__), "keyTm.txt")
+        
+        try:
+            with open(keyfile_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if line and not line.startswith('#'):
+                        keywords.append(line.lower())
+            
+            print(f"🚫 Loaded {len(keywords)} blocked keywords from keyTm.txt")
+            return keywords
+            
+        except FileNotFoundError:
+            print("⚠️  keyTm.txt not found, keyword filtering disabled")
+            return []
+        except Exception as e:
+            print(f"⚠️  Error loading keyTm.txt: {e}")
+            return []
+
+    def is_keyword_blocked(self, text: str) -> bool:
+        """
+        Check if text contains any blocked keywords
+        
+        Args:
+            text: Text to check
+            
+        Returns:
+            True if text contains blocked keywords, False otherwise
+        """
+        if not self.filter_keywords or not self.blocked_keywords:
+            return False
+            
+        text_lower = text.lower()
+        
+        for keyword in self.blocked_keywords:
+            if keyword in text_lower:
+                return True
+                
+        return False
+
     def close(self):
         """Close the driver"""
         if self.driver:
@@ -282,6 +345,8 @@ def main():
                        help="Output folder name (default: colamaga_images)")
     parser.add_argument("--threads", "-t", type=int, default=5,
                        help="Number of download threads (default: 5)")
+    parser.add_argument("--no-filter", action="store_true",
+                       help="Disable keyword filtering")
     parser.add_argument("--visible", action="store_true",
                        help="Run browser in visible mode (not headless)")
 
@@ -291,7 +356,8 @@ def main():
         with ColamagaDownloader(
             download_folder=args.output,
             headless=not args.visible,
-            max_workers=args.threads
+            max_workers=args.threads,
+            filter_keywords=not args.no_filter
         ) as downloader:
             downloader.download_pages(args.url, args.start, args.end)
 
